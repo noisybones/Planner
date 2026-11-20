@@ -491,7 +491,10 @@ function calc(m){
 
 /* ---------- balance & economy ---------- */
 function lastCheck(){const c=(S.balance&&S.balance.checks)||[];return c.length?c[c.length-1]:null}
-function netSince(at){let n=0;for(const mo of Object.values(S.months))for(const t of mo.tx||[])if(t.created&&t.created>at)n+=t.amount;return n}
+// a transaction moves money at its date, not when it was typed in: effective time = later of the two
+function effAt(t){const [y,m,d]=t.date.split("-").map(Number);return Math.max(t.created||0,new Date(y,m-1,d).getTime())}
+function netSince(at){const now=Date.now();let n=0;for(const mo of Object.values(S.months))for(const t of mo.tx||[]){const e=effAt(t);if(e>at&&e<=now)n+=t.amount}return n}
+function pendingTx(until){const now=Date.now(),out=[];for(const mo of Object.values(S.months))for(const t of mo.tx||[])if(t.amount<0&&effAt(t)>now&&t.date<until)out.push(t);return out.sort((a,b)=>a.date.localeCompare(b.date))}
 function estBalance(){const l=lastCheck();return l?l.amount+netSince(l.at):null}
 function dstr(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())}
 function nextPayday(){
@@ -510,8 +513,9 @@ function economy(){
   const mo=monthDoc(curMonth())||blankMonth();
   const items=(mo.items||[]).filter(it=>!(mo.tx||[]).some(t=>t.item===it.id));
   const oblSum=obl.reduce((s,r)=>s+r.amt,0),itemSum=items.reduce((s,i)=>s+i.amount,0);
-  const free=bal-oblSum-itemSum;
-  return {bal,pay,days,obl,oblSum,items,itemSum,free,perDay:days>0?Math.floor(free/days):free};
+  const pend=pendingTx(pay),pendSum=pend.reduce((s,t)=>s-t.amount,0);
+  const free=bal-oblSum-itemSum-pendSum;
+  return {bal,pay,days,obl,oblSum,items,itemSum,pend,pendSum,free,perDay:days>0?Math.floor(free/days):free};
 }
 function ago(at){const m=Math.round((Date.now()-at)/6e4);if(m<2)return "только что";if(m<60)return m+" мин назад";const h=Math.round(m/60);if(h<24)return h+" ч назад";const d=Math.round(h/24);return d+" дн. назад"}
 function vEconomy(){
@@ -525,6 +529,7 @@ function vEconomy(){
       ${S.confirmUndo?`<span class="hint">Отменить сверку ${ago(l.at)} (${eur(l.amount)})${l.txId?" и её трату":""}?</span><button class="btn danger sm" type="button" data-act="undocheck2">Отменить</button>`:`<button class="link" type="button" data-act="undocheck">Отменить последнюю сверку</button>`}</div></div>
     <div class="brk num"><span class="t">На счёте сейчас</span><span class="v">${eur(e.bal)}</span>
       <span class="t">Обязательные платежи до зарплаты (${e.obl.length})</span><span class="v">−${eur(e.oblSum)}</span>
+      ${e.pend.length?`<span class="t">Траты с будущей датой (${e.pend.length})</span><span class="v">−${eur(e.pendSum)}</span>`:""}
       ${e.items.length?`<span class="t">Запланированные покупки (${e.items.length})</span><span class="v">−${eur(e.itemSum)}</span>`:""}
       <span class="t tot">Можно потратить</span><span class="v tot">${eur(e.free)}</span></div>
   </div></section>`;
